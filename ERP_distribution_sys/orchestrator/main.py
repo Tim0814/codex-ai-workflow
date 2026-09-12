@@ -31,8 +31,19 @@ app.add_middleware(
 ENGINE_API_URL = os.getenv("ENGINE_API_URL", "http://localhost:4000/api/allocate")
 
 # Supabase 設定 (選填，未設定時自動切換至 In-Memory 模式)
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+SUPABASE_URL = (
+    os.getenv("SUPABASE_URL")
+    or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    or os.getenv("VITE_SUPABASE_URL")
+    or ""
+)
+SUPABASE_KEY = (
+    os.getenv("SUPABASE_KEY")
+    or os.getenv("SUPABASE_ANON_KEY")
+    or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+    or os.getenv("VITE_SUPABASE_ANON_KEY")
+    or ""
+)
 
 # 記憶體資料儲存庫 (In-Memory Store)
 in_memory_recommendations: List[Dict[str, Any]] = []

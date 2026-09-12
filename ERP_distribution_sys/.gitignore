@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+package-lock.json.bak
+
+# Production Build
+dist/
+build/
+
+# Environment Variables & Secrets (CRITICAL FOR PRIVACY)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python Cache & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# IDE & Editor Configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Generated
+.DS_Store
+Thumbs.db
+
+# Logs & Testing
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+coverage/

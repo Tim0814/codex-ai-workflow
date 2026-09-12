@@ -4,7 +4,7 @@ import { RecommendationCard } from './components/RecommendationCard';
 import { OverrideModal } from './components/OverrideModal';
 import { Play, Download, RefreshCw, CheckCircle, AlertOctagon } from 'lucide-react';
 
-const BACKEND_URL = 'http://localhost:8000';
+const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || 'http://localhost:8000';
 
 export const App: React.FC = () => {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
