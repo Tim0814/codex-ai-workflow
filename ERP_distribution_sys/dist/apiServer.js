@@ -54,7 +54,7 @@ app.post('/api/allocate', async (req, res) => {
             batches,
             weights,
         };
-        const explainer = new llmGemini_1.GeminiExplainer();
+        const explainer = new llmGemini_1.GeminiExplainer({ apiKey: process.env.GEMINI_API_KEY });
         const results = await (0, allocationEngine_1.runAllocation)(allocationInput, { explainer });
         return res.json({
             success: true,
