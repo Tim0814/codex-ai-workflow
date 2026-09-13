@@ -4,8 +4,6 @@ import { RecommendationCard } from './components/RecommendationCard';
 import { OverrideModal } from './components/OverrideModal';
 import { Play, Download, RefreshCw, CheckCircle, AlertOctagon } from 'lucide-react';
 
-const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || 'http://localhost:8000';
-
 export const App: React.FC = () => {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -14,7 +12,7 @@ export const App: React.FC = () => {
   const fetchRecommendations = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${BACKEND_URL}/api/recommendations`);
+      const res = await fetch('/api/recommendations');
       const data = await res.json();
       if (data.success) {
         setRecommendations(data.data);
@@ -29,7 +27,7 @@ export const App: React.FC = () => {
   const handleRunAllocation = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${BACKEND_URL}/api/run-allocation`, {
+      const res = await fetch('/api/run-allocation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -46,7 +44,7 @@ export const App: React.FC = () => {
 
   const handleReviewAction = async (recId: string, action: 'approved' | 'overridden' | 'rejected', overrideReason?: string) => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/review/${recId}`, {
+      const res = await fetch(`/api/review/${recId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, override_reason: overrideReason }),
@@ -63,7 +61,7 @@ export const App: React.FC = () => {
   };
 
   const handleExportCSV = () => {
-    window.open(`${BACKEND_URL}/api/export/csv`, '_blank');
+    window.open('/api/export/csv', '_blank');
   };
 
   useEffect(() => {

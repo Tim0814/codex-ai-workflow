@@ -2,6 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { runAllocation } from '../lib/allocationEngine';
 import type { AllocationInput, Order, Customer, Batch, CompanyWeights, AllocationResult } from '../lib/types';
+import mockData from '../lib/mockData.json';
+import { DEFAULT_WEIGHTS } from '../lib/weights';
 
 function calculateConfidence(status: string, totalScore: number): string {
   if (status === 'blocked') return 'manual';
@@ -15,30 +17,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const body = req.body ?? {};
+    const inputData =
+      body && typeof body === 'object' && body.orders && body.batches
+        ? body
+        : mockData;
 
     // 反序列化：把 JSON 字串日期轉回 Date 物件
-    const orders: Order[] = (body.orders ?? []).map((o: any) => ({
+    const orders: Order[] = inputData.orders.map((o: any) => ({
       ...o,
       requestedDate: new Date(o.requestedDate),
       createdAt: new Date(o.createdAt),
     }));
 
-    const batches: Batch[] = (body.batches ?? []).map((b: any) => ({
+    const batches: Batch[] = inputData.batches.map((b: any) => ({
       ...b,
       expiryDate: new Date(b.expiryDate),
     }));
 
     const customersMap = new Map<string, Customer>(
-      (body.customers ?? []).map((c: any) => [c.customerId, c as Customer])
+      (inputData.customers ?? []).map((c: any) => [c.customerId, c as Customer])
     );
 
-    const weights: CompanyWeights = body.weights ?? {
-      expiry: 0.35, urgency: 0.25, orderTime: 0.15, customerTier: 0.15, regionCluster: 0.10,
-    };
-
-    if (!orders.length || !batches.length) {
-      return res.status(400).json({ error: 'Missing required fields: orders, batches' });
-    }
+    const weights: CompanyWeights = inputData.weights ?? DEFAULT_WEIGHTS;
 
     const input: AllocationInput = { orders, customers: customersMap, batches, weights };
     const results: AllocationResult[] = await runAllocation(input);
