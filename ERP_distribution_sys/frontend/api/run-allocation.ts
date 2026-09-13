@@ -45,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const now = new Date().toISOString();
     const processed = results.map((item) => ({
-      id: `rec-${item.orderId}-${Date.now()}`,
+      // 移除手動組出的 id，讓 Supabase 透過 gen_random_uuid() 自動產生
       order_id: item.orderId,
       batch_id: item.recommendedBatchId,
       status: item.status,
@@ -65,7 +65,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (supabaseUrl && supabaseKey) {
       const supabase = createClient(supabaseUrl, supabaseKey);
       for (const rec of processed) {
-        await supabase.from('allocation_recommendations').upsert(rec);
+        const { error } = await supabase.from('allocation_recommendations').insert(rec);
+        if (error) {
+          console.error('Supabase insert error:', error);
+          throw new Error(`Failed to insert recommendation: ${error.message}`);
+        }
       }
     }
 

@@ -32,6 +32,13 @@ export const App: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
+      
+      // 檢查 HTTP 狀態碼
+      if (!res.ok) {
+        alert(`執行分配引擎失敗: ${data.error || '未知錯誤'}\n詳細資訊: ${data.details || '無'}`);
+        return;
+      }
+      
       if (data.success) {
         setRecommendations(data.data);
       }
@@ -108,7 +115,7 @@ export const App: React.FC = () => {
           <div className="cards-grid">
             {autoConfirmList.map((rec) => (
               <RecommendationCard
-                key={rec.id}
+                key={rec.order_id}
                 rec={rec}
                 onApprove={(id) => handleReviewAction(id, 'approved')}
                 onOverride={(r) => setOverrideModalRec(r)}
@@ -134,7 +141,7 @@ export const App: React.FC = () => {
           <div className="cards-grid">
             {manualReviewList.map((rec) => (
               <RecommendationCard
-                key={rec.id}
+                key={rec.order_id}
                 rec={rec}
                 onApprove={(id) => handleReviewAction(id, 'approved')}
                 onOverride={(r) => setOverrideModalRec(r)}
