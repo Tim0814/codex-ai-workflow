@@ -11,11 +11,11 @@
  *    d. 組裝輸出，呼叫 LLM 解釋層
  */
 
-import { AllocationInput, AllocationResult, Batch, BatchScore, ScoreBreakdown } from './types';
-import { validateWeights } from './weights';
-import { applyHardConstraints } from './hardConstraints';
-import { rankBatches } from './scoring';
-import { LlmExplainer, buildPrompt, StubExplainer } from './llm';
+import { AllocationInput, AllocationResult, Batch, BatchScore, ScoreBreakdown } from './types.js';
+import { validateWeights } from './weights.js';
+import { applyHardConstraints } from './hardConstraints.js';
+import { rankBatches } from './scoring.js';
+import { LlmExplainer, buildPrompt, StubExplainer } from './llm.js';
 
 // ─── 引擎選項 ──────────────────────────────────────────────────────────────────
 

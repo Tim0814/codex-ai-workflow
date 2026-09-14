@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { runAllocation } from '../lib/allocationEngine';
-import type { AllocationInput, Order, Customer, Batch, CompanyWeights, AllocationResult } from '../lib/types';
-import mockData from '../lib/mockData.json';
-import { DEFAULT_WEIGHTS } from '../lib/weights';
+import { runAllocation } from '../lib/allocationEngine.js';
+import type { AllocationInput, Order, Customer, Batch, CompanyWeights, AllocationResult } from '../lib/types.js';
+import mockData from '../lib/mockData.json' with { type: 'json' };
+import { DEFAULT_WEIGHTS } from '../lib/weights.js';
 
 function calculateConfidence(status: string, totalScore: number): string {
   if (status === 'blocked') return 'manual';

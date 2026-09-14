@@ -1,4 +1,4 @@
-import { LlmExplainer, StubExplainer } from './llm';
+import { LlmExplainer, StubExplainer } from './llm.js';
 
 interface GeminiResponse {
   candidates?: Array<{

@@ -7,7 +7,7 @@
  * - 透過 LlmExplainer 介面隔離 provider，方便替換 OpenAI / Azure / Bedrock 等
  */
 
-import { AllocationResult, ScoreBreakdown } from './types';
+import { AllocationResult, ScoreBreakdown } from './types.js';
 
 // ─── Provider 介面 ─────────────────────────────────────────────────────────────
 

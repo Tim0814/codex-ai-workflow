@@ -5,7 +5,7 @@
  * 此模組是純函式，無副作用，不修改任何傳入的物件。
  */
 
-import { Batch, BatchScore, CompanyWeights, Customer, Order, ScoreBreakdown } from './types';
+import { Batch, BatchScore, CompanyWeights, Customer, Order, ScoreBreakdown } from './types.js';
 
 // ─── 評分常數 ──────────────────────────────────────────────────────────────────
 

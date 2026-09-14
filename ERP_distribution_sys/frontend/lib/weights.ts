@@ -7,7 +7,7 @@
  * 3. 從 JSON 物件載入並驗證的工廠函式
  */
 
-import { CompanyWeights } from './types';
+import { CompanyWeights } from './types.js';
 
 // ─── 容許的浮點誤差 ────────────────────────────────────────────────────────────
 const WEIGHT_SUM_TOLERANCE = 0.001;
