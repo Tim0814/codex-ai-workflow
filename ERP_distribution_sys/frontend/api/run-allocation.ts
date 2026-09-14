@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { runAllocation } from '../lib/allocationEngine.js';
 import type { AllocationInput, Order, Customer, Batch, CompanyWeights, AllocationResult } from '../lib/types.js';
@@ -45,7 +46,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const now = new Date().toISOString();
     const processed = results.map((item) => ({
-      // 移除手動組出的 id，讓 Supabase 透過 gen_random_uuid() 自動產生
+      id: randomUUID(),
       order_id: item.orderId,
       batch_id: item.recommendedBatchId,
       status: item.status,
