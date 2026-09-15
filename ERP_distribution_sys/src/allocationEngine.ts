@@ -8,10 +8,11 @@
  *    a. 硬性規則過濾
  *    b. 加權評分 & 排序候選批次
  *    c. 選出最高分批次，即時扣減 availableQty（防超賣）
- *    d. 組裝輸出，呼叫 LLM 解釋層
+ *    d. 燈號分流（green / yellow / red）
+ *    e. 組裝輸出，呼叫 LLM 解釋層
  */
 
-import { AllocationInput, AllocationResult, Batch, BatchScore, ScoreBreakdown } from './types';
+import { AllocationInput, AllocationResult, Batch, BatchScore, ScoreBreakdown, SignalColor } from './types';
 import { validateWeights } from './weights';
 import { applyHardConstraints } from './hardConstraints';
 import { rankBatches } from './scoring';
@@ -24,6 +25,178 @@ export interface AllocationEngineOptions {
   explainer?: LlmExplainer;
   /** 基準日期，預設 new Date()；測試時可注入固定日期 */
   today?: Date;
+  /**
+   * 從 DB 查回的「已存在未取消分配」batchId 集合。
+   * 引擎用此判斷跨執行期的重複分配（red 條件之一）。
+   * 預設空集合（離線 / 測試情境）。
+   */
+  existingAllocatedBatchIds?: Set<string>;
+}
+
+// ─── 燈號判斷常數 ──────────────────────────────────────────────────────────────
+
+/**
+ * 加權總分低於此值 → yellow（低信心度，需人工複核）
+ * 理由：評分系統滿分 100，60 分以下代表沒有任何一個維度特別突出，
+ * 選出的批次與其他候選批次差距可能不大，應由人工確認。
+ */
+const YELLOW_SCORE_THRESHOLD = 60;
+
+/**
+ * 批次效期距今天數低於此值 → yellow（食品安全邊際薄）
+ * 理由：7 天內到期的批次若出貨延誤即可能造成食安問題，
+ * 需人工確認物流時程可在期限內送達。
+ */
+const YELLOW_EXPIRY_DAYS = 7;
+
+/**
+ * 批次送達客戶後剩餘有效期天數低於此值 → yellow（送達即將過期）
+ * 理由：即使在效期內出貨，若抵達客戶手上時剩餘有效期 < 3 天，
+ * 客戶可能拒收或造成退貨，需事先溝通確認。
+ */
+const YELLOW_SHELF_LIFE_ON_ARRIVAL_DAYS = 3;
+
+/**
+ * 訂單要求交期距今天數低於此值 → yellow（緊急訂單）
+ * 理由：2 天內到期的要求交期代表供應鏈時間極為緊迫，
+ * 需人工確認倉儲出貨與物流能否即時配合。
+ */
+const YELLOW_DUE_DAYS = 2;
+
+/**
+ * 批次分配後剩餘庫存量低於此值（相對於本次分配數量的倍數）→ yellow（庫存見底警示）
+ * 理由：分配後剩餘量 < 1 倍本次需求，代表下一筆相同需求的訂單很可能無法被滿足，
+ * 需人工評估是否需要提前補貨或重新調配。
+ */
+const YELLOW_REMAINING_QTY_RATIO = 1;
+
+// ─── 燈號判斷函式 ──────────────────────────────────────────────────────────────
+
+interface SignalResult {
+  color: SignalColor;
+  reason: string;
+}
+
+/**
+ * 為已被 blocked 的結果標記燈號（永遠是 red）
+ */
+function signalForBlocked(blockedReason: string): SignalResult {
+  return { color: 'red', reason: `分配被阻斷：${blockedReason}` };
+}
+
+/**
+ * 為成功分配的結果計算燈號
+ *
+ * 判斷優先序：red → yellow → green
+ * 只要觸發任一 red 條件即標記 red（不繼續評估 yellow）。
+ * 多個 yellow 條件可同時觸發，原因說明會全部列出。
+ *
+ * @param order                    原始訂單
+ * @param chosenBatch              被選中的批次（已扣減後的工作副本）
+ * @param originalAvailableQty     扣減前的批次可用數量（用於判斷剩餘量）
+ * @param totalScore               加權總分
+ * @param today                    基準日期
+ * @param existingAllocatedBatchIds DB 中已存在的未取消分配 batchId 集合
+ * @param allocatedThisRun         本次引擎執行中已分配過的 batchId 集合（跨訂單去重）
+ */
+function computeSignal(
+  order: { requestedQty: number; requestedDate: Date },
+  chosenBatch: Batch,
+  originalAvailableQty: number,
+  totalScore: number,
+  today: Date,
+  existingAllocatedBatchIds: Set<string>,
+  allocatedThisRun: Set<string>,
+): SignalResult {
+  const MS_PER_DAY = 86_400_000;
+
+  // ── Red 條件 ──────────────────────────────────────────────────────────────
+
+  // Red-1：分配數量超過批次可用庫存（防禦性判斷，正常已被 hardConstraints 擋住）
+  if (originalAvailableQty < order.requestedQty) {
+    return {
+      color: 'red',
+      reason: `分配數量（${order.requestedQty}）超過批次可用庫存（${originalAvailableQty}）`,
+    };
+  }
+
+  // Red-2：批次效期早於客戶要求交期（出貨前就已過期）
+  const expiryMs = chosenBatch.expiryDate.getTime();
+  const requestedDateMs = order.requestedDate.getTime();
+  if (expiryMs < requestedDateMs) {
+    const expiryStr = chosenBatch.expiryDate.toISOString().slice(0, 10);
+    const reqStr = new Date(requestedDateMs).toISOString().slice(0, 10);
+    return {
+      color: 'red',
+      reason: `批次效期（${expiryStr}）早於客戶要求交期（${reqStr}），出貨時已過期`,
+    };
+  }
+
+  // Red-3：同一 batchId 在 DB 已存在未取消的分配（跨執行期重複分配）
+  if (existingAllocatedBatchIds.has(chosenBatch.batchId)) {
+    return {
+      color: 'red',
+      reason: `批次 ${chosenBatch.batchId} 在資料庫中已存在未取消的分配紀錄（重複分配）`,
+    };
+  }
+
+  // Red-4：同一 batchId 在本次引擎執行中已被分配給另一筆訂單（批次內重複分配）
+  if (allocatedThisRun.has(chosenBatch.batchId)) {
+    return {
+      color: 'red',
+      reason: `批次 ${chosenBatch.batchId} 在本次分配執行中已被分配給其他訂單（重複分配）`,
+    };
+  }
+
+  // ── Yellow 條件 ───────────────────────────────────────────────────────────
+
+  const yellowReasons: string[] = [];
+
+  // Yellow-1：加權總分低於門檻（低信心度）
+  if (totalScore < YELLOW_SCORE_THRESHOLD) {
+    yellowReasons.push(
+      `加權總分（${totalScore.toFixed(1)}）低於門檻（${YELLOW_SCORE_THRESHOLD}），建議人工確認選批合理性`,
+    );
+  }
+
+  // Yellow-2：批次效期距今 ≤ 7 天（食品安全邊際薄）
+  const daysUntilExpiry = (expiryMs - today.getTime()) / MS_PER_DAY;
+  if (daysUntilExpiry <= YELLOW_EXPIRY_DAYS) {
+    yellowReasons.push(
+      `批次效期距今僅 ${daysUntilExpiry.toFixed(1)} 天（≤${YELLOW_EXPIRY_DAYS} 天），物流時程需確認`,
+    );
+  }
+
+  // Yellow-3：批次效期 − 要求交期 < 3 天（送達後剩餘有效期過短）
+  const shelfLifeOnArrival = (expiryMs - requestedDateMs) / MS_PER_DAY;
+  if (shelfLifeOnArrival >= 0 && shelfLifeOnArrival < YELLOW_SHELF_LIFE_ON_ARRIVAL_DAYS) {
+    yellowReasons.push(
+      `送達客戶後剩餘有效期僅 ${shelfLifeOnArrival.toFixed(1)} 天（<${YELLOW_SHELF_LIFE_ON_ARRIVAL_DAYS} 天），客戶可能拒收`,
+    );
+  }
+
+  // Yellow-4：訂單要求交期距今 ≤ 2 天（緊急訂單）
+  const daysUntilDue = (requestedDateMs - today.getTime()) / MS_PER_DAY;
+  if (daysUntilDue <= YELLOW_DUE_DAYS) {
+    yellowReasons.push(
+      `訂單要求交期距今僅 ${daysUntilDue.toFixed(1)} 天（≤${YELLOW_DUE_DAYS} 天），需確認能否及時出貨`,
+    );
+  }
+
+  // Yellow-5：批次扣減後剩餘量 < 1 倍本次分配數量（庫存見底警示）
+  const remainingQty = originalAvailableQty - order.requestedQty;
+  if (remainingQty < order.requestedQty * YELLOW_REMAINING_QTY_RATIO) {
+    yellowReasons.push(
+      `批次分配後剩餘庫存（${remainingQty}）不足本次需求量（${order.requestedQty}）的 ${YELLOW_REMAINING_QTY_RATIO} 倍，下一筆訂單可能無貨`,
+    );
+  }
+
+  if (yellowReasons.length > 0) {
+    return { color: 'yellow', reason: yellowReasons.join('；') };
+  }
+
+  // ── Green ─────────────────────────────────────────────────────────────────
+  return { color: 'green', reason: '所有條件均正常，建議自動放行' };
 }
 
 // ─── 主引擎函式 ────────────────────────────────────────────────────────────────
@@ -32,7 +205,7 @@ export interface AllocationEngineOptions {
  * 執行完整的訂單分配流程
  *
  * @param input   訂單、客戶、批次與權重設定
- * @param options 可選設定（LLM 解釋器、基準日期）
+ * @param options 可選設定（LLM 解釋器、基準日期、DB 中已存在分配的 batchId 集合）
  * @returns 每筆訂單的分配結果（順序與 input.orders 一致）
  *
  * @throws {Error} 權重設定不合法時
@@ -45,6 +218,7 @@ export async function runAllocation(
   const { orders, customers, batches, weights } = input;
   const today = options.today ?? new Date();
   const explainer = options.explainer ?? new StubExplainer();
+  const existingAllocatedBatchIds = options.existingAllocatedBatchIds ?? new Set<string>();
 
   // 步驟 1：驗證權重（不合法直接拋錯，不進行後續計算）
   validateWeights(weights);
@@ -72,6 +246,8 @@ export async function runAllocation(
 
   // 步驟 5：逐筆處理訂單，收集結果（key = orderId）
   const resultMap = new Map<string, AllocationResult>();
+  // 追蹤本次執行中已分配的 batchId（用於 Red-4 跨訂單重複分配檢查）
+  const allocatedThisRun = new Set<string>();
 
   for (const order of orderedByPriority) {
     const customer = customers.get(order.customerId);
@@ -85,7 +261,8 @@ export async function runAllocation(
     const filterResult = applyHardConstraints(order, workingBatches, today);
 
     if (!filterResult.passed) {
-      // 被阻斷：組裝 blocked 結果
+      // 被阻斷：燈號一律為 red，原因取自阻斷訊息
+      const signal = signalForBlocked(filterResult.reason);
       const blockedResult: AllocationResult = {
         orderId: order.orderId,
         status: 'blocked',
@@ -94,6 +271,8 @@ export async function runAllocation(
         totalScore: 0,
         explanation: '',
         blockedReason: filterResult.reason,
+        signalColor: signal.color,
+        signalReason: signal.reason,
       };
       blockedResult.explanation = await explainer.explain(buildPrompt(blockedResult));
       resultMap.set(order.orderId, blockedResult);
@@ -110,9 +289,10 @@ export async function runAllocation(
       pendingOrderRegions,
     );
 
-    // 5c. 選最高分批次，即時扣減庫存（防超賣）
+    // 5c. 選最高分批次，記錄扣減前庫存量，再即時扣減（防超賣）
     const best = ranked[0]!;
     const chosenBatch = workingBatches.find((b) => b.batchId === best.batchId)!;
+    const originalAvailableQty = chosenBatch.availableQty; // 扣減前保留，供燈號判斷使用
     chosenBatch.availableQty -= order.requestedQty;
 
     // 判斷是 recommended 還是 partial
@@ -123,6 +303,20 @@ export async function runAllocation(
       ? 'partial'   // 不應發生（硬規則已擋），保守起見保留
       : 'recommended';
 
+    // 5d. 燈號分流
+    const signal = computeSignal(
+      order,
+      chosenBatch,
+      originalAvailableQty,
+      best.totalScore,
+      today,
+      existingAllocatedBatchIds,
+      allocatedThisRun,
+    );
+
+    // 分配成功後才將此 batchId 加入本次已分配集合
+    allocatedThisRun.add(chosenBatch.batchId);
+
     const result: AllocationResult = {
       orderId: order.orderId,
       status,
@@ -131,6 +325,8 @@ export async function runAllocation(
       totalScore: best.totalScore,
       explanation: '',
       blockedReason: null,
+      signalColor: signal.color,
+      signalReason: signal.reason,
     };
     result.explanation = await explainer.explain(buildPrompt(result));
     resultMap.set(order.orderId, result);
