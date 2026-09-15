@@ -73,6 +73,13 @@ export interface BatchScore {
 }
 export type AllocationStatus = 'recommended' | 'blocked' | 'partial';
 /**
+ * 燈號顏色：代表每筆分配建議的風險等級
+ * - green : 正常，可自動放行
+ * - yellow: 模糊區間，建議人工複核
+ * - red   : 存在明確風險，必須人工介入
+ */
+export type SignalColor = 'green' | 'yellow' | 'red';
+/**
  * 每筆訂單的分配處理結果（對應需求文件 §6 輸出格式）
  */
 export interface AllocationResult {
@@ -88,6 +95,10 @@ export interface AllocationResult {
     explanation: string;
     /** 被 blocked 的原因；非 blocked 時為 null */
     blockedReason: string | null;
+    /** 燈號分流結果（green / yellow / red） */
+    signalColor: SignalColor;
+    /** 燈號判斷的原因說明 */
+    signalReason: string;
 }
 /** 傳入分配引擎的完整輸入資料 */
 export interface AllocationInput {

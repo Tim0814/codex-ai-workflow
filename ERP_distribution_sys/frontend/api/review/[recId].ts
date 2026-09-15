@@ -14,7 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!action || !validActions.includes(action)) {
     return res.status(400).json({ error: `Invalid action. Must be one of: ${validActions.join(', ')}` });
   }
-  if (action === 'overridden' && !override_reason?.trim()) {
+  if (action === 'overridden' && (typeof override_reason !== 'string' || !override_reason.trim())) {
     return res.status(400).json({ error: '覆寫 (overridden) 時必須填寫覆寫原因 (override_reason)' });
   }
 
